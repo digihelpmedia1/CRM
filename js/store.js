@@ -114,6 +114,20 @@ const Store = {
     saved.templates = saved.templates || def.templates;
     saved.webhookLog = saved.webhookLog || [];
     this.state = saved;
+    if (this.upgradeDefaultAdmin()) saved.settings.configUpdatedAt = Date.now();
+  },
+
+  /* if an admin still uses an older built-in default password, switch it to the current default */
+  upgradeDefaultAdmin() {
+    let changed = false;
+    this.state.members.forEach(m => {
+      if (m.salt === DEFAULT_ADMIN_AUTH.salt && OLD_DEFAULT_ADMIN_HASHES.includes(m.passHash)) {
+        m.passHash = DEFAULT_ADMIN_AUTH.passHash;
+        m.passwordChangedAt = new Date().toISOString();
+        changed = true;
+      }
+    });
+    return changed;
   },
 
   save() {

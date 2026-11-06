@@ -409,7 +409,10 @@ const Cloud = {
           if (!c.members.some(m => m.passHash)) {
             c.members.forEach(m => { const loc = Store.member(m.id); if (loc) ['username', 'salt', 'passHash', 'recHash', 'passwordChangedAt'].forEach(k => { if (loc[k]) m[k] = loc[k]; }); });
           }
-          if (c.members.some(m => m.passHash && m.active && m.role === 'Admin')) Store.state.members = c.members;
+          if (c.members.some(m => m.passHash && m.active && m.role === 'Admin')) {
+            Store.state.members = c.members;
+            if (Store.upgradeDefaultAdmin()) c._upgraded = true;
+          }
         }
         if (c.templates) Store.state.templates = c.templates;
         if (c.settings) {
@@ -417,7 +420,8 @@ const Cloud = {
           Object.assign(Store.s, rest);
           if (sheet) Object.assign(Store.s.sheet, sheet);
         }
-        Store.s.configUpdatedAt = c.updatedAt;
+        Store.s.configUpdatedAt = c._upgraded ? Date.now() : c.updatedAt;
+        if (c._upgraded) this.pushConfigSoon();
         changed++;
       } else if (!json.config || json.config.updatedAt < (Store.s.configUpdatedAt || 0)) {
         this.pushConfigSoon();

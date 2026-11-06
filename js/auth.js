@@ -3,10 +3,12 @@
    Passwords and recovery codes are stored only as salted SHA-256 hashes.
    ========================================================================= */
 
+/* earlier default admin password hashes — upgraded automatically to the current default if never changed */
+const OLD_DEFAULT_ADMIN_HASHES = ['a81639367d03e8f94d54160ef520ade2099021cdc3e4b7c42350752a5de951ec'];
 const DEFAULT_ADMIN_AUTH = {
   username: 'digihelpmedia',
   salt: 'dhm_392d7cc2e9e8e091',
-  passHash: 'a81639367d03e8f94d54160ef520ade2099021cdc3e4b7c42350752a5de951ec',
+  passHash: '93be3708a8297960298290ac42eda93cf5df04c2619a7085561d39a7b5871277',
   recHash: '25c4b48e0de1de630d00216f6c5dac0aba0d529af3635e34d97d2931914ab756',
 };
 
