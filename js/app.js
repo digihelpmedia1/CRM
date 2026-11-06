@@ -174,8 +174,26 @@ const App = {
   route: 'dashboard',
   drawerLead: null,
 
+  started: false,
+
   init() {
     Store.load();
+    if (!window.crypto || !crypto.subtle) {
+      document.getElementById('auth').innerHTML = '<div class="auth-card"><h2>Secure connection required</h2><p>Please open the CRM over https:// (e.g. the Vercel link) or from a local file.</p></div>';
+      document.getElementById('auth').classList.add('open');
+      return;
+    }
+    const m = Auth.session();
+    if (!m) { AuthUI.show('login'); if (Cloud.enabled()) Cloud.pull().catch(() => {}); return; }
+    Store.s.currentUser = m.id;
+    this.start();
+  },
+
+  /* runs once after a successful sign-in */
+  start() {
+    if (this.started) { this.go(); return; }
+    this.started = true;
+    AuthUI.hide();
     this.bindGlobal();
     window.addEventListener('hashchange', () => this.go());
     this.renderUserSwitch();
@@ -210,6 +228,8 @@ const App = {
 
   /* re-render without stealing focus from inputs on the leads page */
   refresh() {
+    if (!Auth.session()) { UI.toast('Your session ended — please sign in again', 'error'); setTimeout(() => Auth.logout(), 1200); return; }
+    this.renderUserSwitch();
     if (this.route === 'leads') { Views.leadsTable(); this.updateBadges(); }
     else this.render();
     if (this.drawerLead) Drawer.render();
@@ -225,9 +245,13 @@ const App = {
   },
 
   renderUserSwitch() {
-    const sel = $('#current-user');
-    sel.innerHTML = Store.state.members.filter(m => m.active || m.id === Store.s.currentUser)
-      .map(m => `<option value="${esc(m.id)}" ${m.id === Store.s.currentUser ? 'selected' : ''}>${esc(m.name)} (${esc(m.role)})</option>`).join('');
+    const me = Store.me();
+    if (!me) return;
+    $('#user-menu').innerHTML = `
+      <span class="avatar sm">${esc(initials(me.name))}</span>
+      <div class="user-info"><b>${esc(me.name)}</b><span class="muted small">@${esc(me.username || '')} · ${esc(me.role)}</span></div>
+      <button class="btn btn-sm btn-ghost" data-act="my-password" title="Change password">🔑</button>
+      <button class="btn btn-sm btn-ghost" data-act="logout" title="Sign out">⎋ Logout</button>`;
   },
 
   startTimers() {
@@ -270,13 +294,6 @@ const App = {
     $('#drawer-backdrop').addEventListener('click', () => Drawer.close());
     $('#menu-btn').addEventListener('click', () => $('#sidebar').classList.toggle('open'));
     $('#quick-sync').addEventListener('click', () => Actions.syncSheet());
-    $('#current-user').addEventListener('change', e => {
-      Store.s.currentUser = e.target.value; Store.save();
-      LeadFilter.selected.clear(); LeadFilter.page = 1;
-      Drawer.close();
-      UI.toast('Switched to ' + Store.me().name);
-      this.go();
-    });
   },
 };
 
@@ -573,24 +590,27 @@ const Views = {
           <ul class="help-list">
             <li><b>Admin / Manager</b> — sees every lead, assigns leads, manages team, templates, integrations & settings.</li>
             <li><b>Telecaller</b> — sees only leads assigned to them, updates status, adds call notes, sets follow-ups and sends WhatsApp templates.</li>
-            <li>Each team member selects their name in the <b>“Logged in as”</b> menu (top-right) on their computer.</li>
+            <li>Every member signs in with their own <b>username & password</b>. Use <b>🔑 Password</b> to reset a member's password, and <b>Recovery code</b> to give them a code for the “Forgot password?” screen.</li>
           </ul>
         </div>
       </div>
       <div class="card flush">
         <div class="card-head pad"><h3>Team members (${Store.state.members.length})</h3><button class="btn btn-primary" data-act="member-edit">+ Add member</button></div>
         <div class="table-wrap"><table class="table">
-          <thead><tr><th>Name</th><th>Role</th><th>Phone</th><th>Email</th><th>Assigned</th><th>${esc(first)}</th><th>${esc(s.wonStatus)}</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>Name</th><th>Username / ID</th><th>Role</th><th>Phone</th><th>Email</th><th>Assigned</th><th>${esc(first)}</th><th>${esc(s.wonStatus)}</th><th>Status</th><th></th></tr></thead>
           <tbody>${Store.state.members.map(m => {
             const mine = Store.state.leads.filter(l => l.assignedTo === m.id);
             return `<tr>
               <td><span class="avatar sm">${esc(initials(m.name))}</span><b>${esc(m.name)}</b>${m.id === s.currentUser ? ' <span class="tag">you</span>' : ''}</td>
+              <td>${m.username ? `<code>${esc(m.username)}</code>` : '<span class="tag warn">no login</span>'}${m.username && !m.passHash ? ' <span class="tag warn">no password</span>' : ''}</td>
               <td>${esc(m.role)}</td><td>${esc(m.phone || '—')}</td><td>${esc(m.email || '—')}</td>
               <td><a href="#/leads" data-act="member-leads" data-id="${esc(m.id)}">${mine.length}</a></td>
               <td>${mine.filter(l => l.status === first).length}</td>
               <td>${mine.filter(l => l.status === s.wonStatus).length}</td>
               <td>${m.active ? '<span class="tag ok">Active</span>' : '<span class="tag">Inactive</span>'}</td>
               <td class="nowrap right"><button class="btn btn-sm btn-ghost" data-act="member-edit" data-id="${esc(m.id)}">Edit</button>
+                <button class="btn btn-sm btn-ghost" data-act="member-pw" data-id="${esc(m.id)}" title="Set a new password">🔑 Password</button>
+                <button class="btn btn-sm btn-ghost" data-act="member-code" data-id="${esc(m.id)}" title="Generate a new recovery code">Recovery code</button>
                 ${m.id !== s.currentUser ? `<button class="btn btn-sm btn-ghost danger" data-act="member-del" data-id="${esc(m.id)}">Delete</button>` : ''}</td>
             </tr>`;
           }).join('')}</tbody>
@@ -868,6 +888,7 @@ function openWhatsApp(leadId) {
 /* =============================================================== Handlers */
 const Handlers = {
   'modal-close': () => UI.closeModal(),
+  'copy-text': el => { if (navigator.clipboard) navigator.clipboard.writeText(el.dataset.text); el.textContent = 'Copied ✓'; },
   'drawer-close': () => Drawer.close(),
   'kpi-link': el => {
     const [route, qs] = el.dataset.link.split('?');
@@ -964,6 +985,50 @@ const Handlers = {
   /* team */
   distribute: () => { const n = Actions.distributeUnassigned(); if (n) UI.toast(`${n} lead(s) distributed`, 'success'); App.render(); },
   'member-edit': el => memberForm(el.dataset.id),
+  logout: () => { if (UI.confirm('Sign out of the CRM?')) Auth.logout(); },
+  'my-password': () => {
+    const me = Store.me();
+    UI.modal(`
+      <div class="modal-head"><h3>🔑 Change my password</h3><button class="icon-btn" data-act="modal-close">✕</button></div>
+      <p class="muted small">Signed in as <b>${esc(me.name)}</b> (<code>${esc(me.username)}</code>)</p>
+      <form data-form="mypw" class="form-grid one">
+        <label class="field"><span>Current password</span><input class="input" name="cur" type="password" autocomplete="current-password" required></label>
+        <label class="field"><span>New password (min 6 characters)</span><input class="input" name="p1" type="password" autocomplete="new-password" minlength="6" required></label>
+        <label class="field"><span>Confirm new password</span><input class="input" name="p2" type="password" autocomplete="new-password" minlength="6" required></label>
+        <div class="modal-foot"><button type="button" class="btn btn-ghost" data-act="my-code">Get a new recovery code</button><button class="btn btn-primary">Change password</button></div>
+      </form>`);
+  },
+  'my-code': async () => {
+    if (!UI.confirm('Create a new recovery code? Your old code will stop working.')) return;
+    const me = Store.me();
+    const code = await Auth.newRecoveryCode(me);
+    Store.touchConfig();
+    showCredentials(me, null, code);
+  },
+  'member-pw': el => {
+    const m = Store.member(el.dataset.id);
+    if (m.role === 'Admin' && Store.me().role !== 'Admin') return UI.toast('Only an Admin can reset an Admin password', 'error');
+    if (!m.username) return UI.toast('Set a username for this member first (Edit)', 'error');
+    UI.modal(`
+      <div class="modal-head"><h3>🔑 Reset password — ${esc(m.name)}</h3><button class="icon-btn" data-act="modal-close">✕</button></div>
+      <form data-form="setpw" class="form-grid one">
+        <input type="hidden" name="id" value="${esc(m.id)}">
+        <label class="field"><span>Username / ID</span><input class="input" value="${esc(m.username || '')}" disabled></label>
+        <label class="field"><span>New password (min 6 characters)</span><input class="input" name="p1" type="text" autocomplete="new-password" minlength="6" required></label>
+        <label class="field"><span>Confirm new password</span><input class="input" name="p2" type="text" autocomplete="new-password" minlength="6" required></label>
+        <p class="muted small">${esc(m.name)} will be signed out on all devices and must use the new password.</p>
+        <div class="modal-foot"><button type="button" class="btn btn-ghost" data-act="modal-close">Cancel</button><button class="btn btn-primary">Set new password</button></div>
+      </form>`);
+  },
+  'member-code': async el => {
+    const m = Store.member(el.dataset.id);
+    if (m.role === 'Admin' && Store.me().role !== 'Admin') return UI.toast('Only an Admin can do this for an Admin', 'error');
+    if (!m.username) return UI.toast('Set a username for this member first (Edit)', 'error');
+    if (!UI.confirm(`Create a new recovery code for ${m.name}? Their old code will stop working.`)) return;
+    const code = await Auth.newRecoveryCode(m);
+    Store.touchConfig();
+    showCredentials(m, null, code);
+  },
   'member-del': el => {
     const m = Store.member(el.dataset.id);
     const n = Store.state.leads.filter(l => l.assignedTo === m.id).length;
@@ -1100,16 +1165,48 @@ const Forms = {
     if (note) Actions.addNote(l.id, note);
     UI.closeModal(); UI.toast('Lead added', 'success'); App.refresh();
   },
-  member(f, fd) {
+  async member(f, fd) {
     const id = fd.get('id');
-    const data = { name: fd.get('name').trim(), role: fd.get('role'), phone: fd.get('phone').trim(), email: fd.get('email').trim(), active: !!fd.get('active') };
+    const data = { name: fd.get('name').trim(), role: fd.get('role'), phone: fd.get('phone').trim(), email: fd.get('email').trim(), active: !!fd.get('active'), username: Auth.normUser(fd.get('username')) };
+    const pw = fd.get('password');
     if (!data.name) return UI.toast('Name is required', 'error');
-    if (id) {
-      const m = Store.member(id);
-      if (m.id === Store.s.currentUser && data.role === 'Telecaller' && !Store.state.members.some(x => x.id !== m.id && x.active && x.role !== 'Telecaller')) return UI.toast('Keep at least one active Admin', 'error');
-      Object.assign(m, data);
-    } else Store.state.members.push({ id: uid('m_'), ...data });
+    if (!/^[a-z0-9._@-]{3,40}$/.test(data.username)) return UI.toast('Username: 3–40 letters, numbers, . _ @ -', 'error');
+    if (Auth.usernameTaken(data.username, id)) return UI.toast('That username is already used', 'error');
+    const existing = id ? Store.member(id) : null;
+    if (pw || !existing || !existing.passHash) { const err = Auth.validatePassword(pw); if (err) return UI.toast(err, 'error'); }
+    if (existing && existing.role === 'Admin' && Store.me().role !== 'Admin') return UI.toast('Only an Admin can edit an Admin account', 'error');
+    if (data.role === 'Admin' && Store.me().role !== 'Admin') return UI.toast('Only an Admin can create Admin accounts', 'error');
+    if (existing && existing.id === Store.s.currentUser) {
+      if (!data.active) return UI.toast('You cannot deactivate your own account', 'error');
+      if (data.role !== 'Admin' && existing.role === 'Admin' && !Store.state.members.some(x => x.id !== existing.id && x.active && x.role === 'Admin' && x.passHash)) return UI.toast('Keep at least one active Admin', 'error');
+    }
+    const m = existing || { id: uid('m_') };
+    Object.assign(m, data);
+    if (pw) await Auth.setPassword(m, pw);
+    let code = null;
+    if (!m.recHash) code = await Auth.newRecoveryCode(m);
+    if (!existing) Store.state.members.push(m);
+    if (m.id === Store.s.currentUser) Auth.refreshSessionStamp(m);
     Store.touchConfig(); UI.closeModal(); App.renderUserSwitch(); App.go(); UI.toast('Team member saved', 'success');
+    if (!existing || pw || code) showCredentials(m, pw, code);
+  },
+  async mypw(f, fd) {
+    const me = Store.me();
+    if (!(await Auth.checkPassword(me, fd.get('cur')))) return UI.toast('Current password is incorrect', 'error');
+    if (fd.get('p1') !== fd.get('p2')) return UI.toast('New passwords do not match', 'error');
+    const err = Auth.validatePassword(fd.get('p1')); if (err) return UI.toast(err, 'error');
+    await Auth.setPassword(me, fd.get('p1'));
+    Auth.refreshSessionStamp(me);
+    Store.touchConfig(); UI.closeModal(); UI.toast('Password changed', 'success');
+  },
+  async setpw(f, fd) {
+    const m = Store.member(fd.get('id'));
+    if (fd.get('p1') !== fd.get('p2')) return UI.toast('Passwords do not match', 'error');
+    const err = Auth.validatePassword(fd.get('p1')); if (err) return UI.toast(err, 'error');
+    await Auth.setPassword(m, fd.get('p1'));
+    if (m.id === Store.s.currentUser) Auth.refreshSessionStamp(m);
+    Store.touchConfig(); UI.closeModal(); App.render();
+    showCredentials(m, fd.get('p1'), null);
   },
   template(f, fd) {
     const id = fd.get('id');
@@ -1173,6 +1270,26 @@ function leadForm() {
     </form>`);
 }
 
+/* shows login details to hand over to a team member (password/code shown once) */
+function showCredentials(m, pw, code) {
+  const url = location.protocol.startsWith('http') ? location.origin + location.pathname : '';
+  const text = [`${Store.s.company} CRM login`, url && `Link: ${url}`, `Username: ${m.username}`, pw && `Password: ${pw}`, code && `Recovery code (for "Forgot password"): ${code}`].filter(Boolean).join('\n');
+  UI.modal(`
+    <div class="modal-head"><h3>🔐 Login details — ${esc(m.name)}</h3><button class="icon-btn" data-act="modal-close">✕</button></div>
+    <p class="muted small">Share these with ${esc(m.name)}. ${code ? '<b>The recovery code is shown only once</b> — it lets them reset their password from the “Forgot password?” link on the sign-in page.' : ''}</p>
+    <div class="cred-box">
+      ${url ? `<div><span>Link</span><code>${esc(url)}</code></div>` : ''}
+      <div><span>Username / ID</span><code>${esc(m.username)}</code></div>
+      ${pw ? `<div><span>Password</span><code>${esc(pw)}</code></div>` : ''}
+      ${code ? `<div><span>Recovery code</span><code class="big">${esc(code)}</code></div>` : ''}
+    </div>
+    <div class="modal-foot">
+      ${m.phone ? `<a class="btn btn-wa" target="_blank" rel="noopener" href="${esc(WhatsApp.link(m.phone, text))}">💬 Send on WhatsApp</a>` : ''}
+      <button class="btn" data-act="copy-text" data-text="${esc(text)}">Copy</button>
+      <button class="btn btn-primary" data-act="modal-close">Done</button>
+    </div>`);
+}
+
 function memberForm(id) {
   const m = id ? Store.member(id) : { name: '', role: 'Telecaller', phone: '', email: '', active: true };
   UI.modal(`
@@ -1183,6 +1300,8 @@ function memberForm(id) {
       <label class="field"><span>Role</span><select class="input" name="role">${['Telecaller', 'Manager', 'Admin'].map(r => `<option ${r === m.role ? 'selected' : ''}>${r}</option>`).join('')}</select></label>
       <label class="field"><span>Phone / WhatsApp</span><input class="input" name="phone" value="${esc(m.phone)}"></label>
       <label class="field"><span>Email</span><input class="input" name="email" type="email" value="${esc(m.email)}"></label>
+      <label class="field"><span>Username / login ID *</span><input class="input" name="username" value="${esc(m.username || '')}" autocomplete="off" required minlength="3" maxlength="40"></label>
+      <label class="field"><span>${id && m.passHash ? 'New password <em class="muted">(leave blank to keep current)</em>' : 'Password *'}</span><input class="input" name="password" type="text" autocomplete="new-password" minlength="6" ${id && m.passHash ? '' : 'required'}></label>
       <label class="check span-2"><input type="checkbox" name="active" ${m.active ? 'checked' : ''}> Active (receives new leads in round-robin)</label>
       <div class="span-2 modal-foot"><button type="button" class="btn btn-ghost" data-act="modal-close">Cancel</button><button class="btn btn-primary">Save</button></div>
     </form>`);

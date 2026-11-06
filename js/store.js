@@ -37,7 +37,7 @@ function defaultState() {
     version: 1,
     leads: [],
     members: [
-      { id: 'm_admin', name: 'Admin', role: 'Admin', phone: '', email: '', active: true },
+      { id: 'm_admin', name: 'Digi Help Media Admin', role: 'Admin', phone: '', email: '', active: true, ...DEFAULT_ADMIN_AUTH },
     ],
     templates: [
       {
@@ -104,6 +104,13 @@ const Store = {
     saved.settings.webhook.events = Object.assign({}, def.settings.webhook.events, saved.settings.webhook.events || {});
     saved.leads = saved.leads || [];
     saved.members = saved.members && saved.members.length ? saved.members : def.members;
+    // first run of the login system: give the built-in admin its default credentials
+    if (!saved.members.some(m => m.passHash)) {
+      const adm = saved.members.find(m => m.id === 'm_admin') || saved.members.find(m => m.role === 'Admin');
+      if (adm) Object.assign(adm, DEFAULT_ADMIN_AUTH, { active: true, role: 'Admin' });
+      else saved.members.unshift(def.members[0]);
+      saved.settings.configUpdatedAt = Date.now(); // make the credentials win over older team-sync config
+    }
     saved.templates = saved.templates || def.templates;
     saved.webhookLog = saved.webhookLog || [];
     this.state = saved;

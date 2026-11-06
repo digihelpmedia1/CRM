@@ -7,7 +7,10 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%235b4dff'/><text x='16' y='22' font-size='16' font-family='Arial' font-weight='700' fill='white' text-anchor='middle'>D</text></svg>" />
   <link rel="stylesheet" href="css/styles.css" />
 </head>
-<body>
+<body class="locked">
+  <!-- Login / reset password screen -->
+  <div class="auth" id="auth"></div>
+
   <div class="app">
     <aside class="sidebar" id="sidebar">
       <div class="brand">
@@ -38,10 +41,7 @@
         <h1 id="page-title">Dashboard</h1>
         <div class="topbar-right">
           <button class="btn btn-ghost" id="quick-sync" title="Fetch new leads from Google Sheet">⟳ Sync leads</button>
-          <label class="user-switch">
-            <span class="muted small">Logged in as</span>
-            <select id="current-user"></select>
-          </label>
+          <div class="user-menu" id="user-menu"></div>
         </div>
       </header>
       <section class="view" id="view"></section>
@@ -61,6 +61,7 @@
 
   <script src="js/store.js"></script>
   <script src="js/integrations.js"></script>
+  <script src="js/auth.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

@@ -19,13 +19,23 @@ No installation, no server, no build step: open `index.html` in Chrome / Edge, o
 | **Follow-ups** | Overdue / Today / Upcoming board |
 | **WhatsApp templates** | Create templates with variables `{{name}} {{first_name}} {{agent}} {{agent_phone}} {{company}} {{campaign}} {{city}}…`, live WhatsApp-style preview. Telecaller picks a template, edits, sends via **wa.me** (WhatsApp Web/App) **or** via **n8n → WhatsApp Business API**. Every message is logged on the lead. |
 | **n8n webhooks** | Webhook URL + optional secret header, choose events: `lead.created`, `lead.assigned`, `lead.status_changed`, `lead.updated`, `lead.note_added`, `lead.followup_set`, `whatsapp.sent`, `lead.deleted`. Test button + delivery log. |
+| **Login** | Username + password for every team member, "Keep me signed in", change password, logout. Passwords are stored only as salted SHA-256 hashes |
+| **Forgot password** | Reset from the sign-in page using a personal recovery code; admins can also reset any member's password or issue a new recovery code from **Team** |
 | **Roles** | Admin/Manager see everything; Telecallers see only their own leads |
 | **Team Cloud Sync** | Optional free Google Apps Script backend so all team computers share the same leads in near real time |
 | **Backup** | JSON backup / restore, CSV export, demo data |
 
+## Sign in
+
+- The built-in admin username is `digihelpmedia`. The initial password was shared with the owner privately. **Change it after the first sign-in** (🔑 button, top-right).
+- **Add a telecaller:** Team → + Add member → set username & password. A one-time recovery code is shown; send the login details on WhatsApp with one click.
+- **Forgot password:** on the sign-in page click **Forgot password?** → username + recovery code → new password. A used code stops working and a new one is shown.
+- **No recovery code:** an Admin opens Team → 🔑 Password to set a new password, or **Recovery code** to issue a new code.
+- Changing or resetting a password signs that user out on all devices.
+
 ## Quick start
 
-1. Open `index.html` in a browser (or deploy the folder to GitHub Pages).
+1. Open the CRM (Vercel link or `index.html`) and sign in.
 2. **Settings** → check company name and country code (`91`).
 3. **Team** → add your telecallers. Turn on round-robin if you want automatic assignment.
 4. **Integrations → Google Sheet**
@@ -85,6 +95,7 @@ apps-script/Code.gs   Optional Google Apps Script backend for team sync
 
 ## Notes & limitations
 
-- The **"Logged in as"** selector is a convenience switch, not secure authentication. Use Team Cloud Sync with trusted staff only. For strict per-user login, the next step is moving the backend to Supabase/Firebase with auth.
+- Login runs in the browser (static site, no server). It keeps staff in their own accounts, but it is not server-enforced security. For that, the next step is moving the backend to Supabase/Firebase Auth.
+- On a new computer, use **"New computer? Connect to team database"** on the sign-in page so team accounts and password changes load from Team Cloud Sync.
 - The Google Sheet must be viewable by link for the CRM to read it.
 - Auto-sync from the sheet runs on Admin/Manager browsers while the CRM is open.

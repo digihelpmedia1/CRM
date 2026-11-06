@@ -404,7 +404,13 @@ const Cloud = {
       });
       if (json.config && json.config.updatedAt > (Store.s.configUpdatedAt || 0)) {
         const c = json.config;
-        if (c.members) Store.state.members = c.members;
+        if (c.members) {
+          // never let an older config without logins wipe out local credentials
+          if (!c.members.some(m => m.passHash)) {
+            c.members.forEach(m => { const loc = Store.member(m.id); if (loc) ['username', 'salt', 'passHash', 'recHash', 'passwordChangedAt'].forEach(k => { if (loc[k]) m[k] = loc[k]; }); });
+          }
+          if (c.members.some(m => m.passHash && m.active && m.role === 'Admin')) Store.state.members = c.members;
+        }
         if (c.templates) Store.state.templates = c.templates;
         if (c.settings) {
           const { sheet, ...rest } = c.settings;
